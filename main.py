@@ -7,19 +7,25 @@ import pose_module as pm
 from utils import *
 
 
+# Select and crop the video.
 VIDEO_PATH = "video.mp4"
 VIDEO_START_SEC = 5
 VIDEO_DURATION_SEC = 5
 
-# Resolution of the screen maybe. Not very important.
-MAX_WIDTH = 1024
-MAX_HEIGHT = 768
-
+# Some arbitrary values below. 
+# Let's call the angle between the shoulder, elbow and wrist just "angle".
+# Throughout the video, yhe average of angles over the last ANGLE_CHECK_DURATION_SEC seconds should 
+# always be 180-ANGLE_TOLERANCE_DEG and 180+ANGLE_TOLERANCE_DEG degrees.
 ANGLE_CHECK_DURATION_SEC = 3
 ANGLE_TOLERANCE_DEG = 5
 
+# Higher values mean more accurate pose estimation but fewer frames with a pose are detected. (I think.)
 MIN_DETECTION_CONFIDENCE = 0.9
 MIN_TRACKING_CONFIDENCE = 0.9
+
+# Resolution of the screen maybe. Not very important.
+MAX_WIDTH = 1024
+MAX_HEIGHT = 768
 
 
 capture = cv.VideoCapture(VIDEO_PATH)
