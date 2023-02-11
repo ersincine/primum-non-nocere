@@ -108,4 +108,5 @@ for _ in range(VIDEO_DURATION_SEC * framerate):
 print("mean of angles:", np.mean(angles))
 print("standard deviation of angles:", np.std(angles))
 print(f"number of pressures: {num_pressures} ({round((num_pressures * 60) / VIDEO_DURATION_SEC)} per minute)")
+# TODO: Calculate the number of pressures per minute not once but for every 10 seconds or so.
 print("angle success:", angle_success)
