@@ -12,12 +12,18 @@ VIDEO_PATH = "video.mp4"
 VIDEO_START_SEC = 5
 VIDEO_DURATION_SEC = 5
 
+# ANGLES
 # Some arbitrary values below. 
 # Let's call the angle between the shoulder, elbow and wrist just "angle".
-# Throughout the video, yhe average of angles over the last ANGLE_CHECK_DURATION_SEC seconds should 
-# always be 180-ANGLE_TOLERANCE_DEG and 180+ANGLE_TOLERANCE_DEG degrees.
+# Throughout the video, the average of angles over the last ANGLE_CHECK_DURATION_SEC seconds should 
+# always be greater than or equal to 180-ANGLE_TOLERANCE_DEG.
 ANGLE_CHECK_DURATION_SEC = 3
 ANGLE_TOLERANCE_DEG = 5
+NUM_FRAMES_FOR_ANGLE_SMOOTHING = 3  # This is not for evaluation, but for obtaining more accurate angles. (Her an son üç karenin ortalaması gösterilecek.)
+
+# COMPRESSIONS
+NUM_FRAMES_FOR_COORDINATE_SMOOTHING = 3  # This is not for evaluation, but for obtaining more accurate directions. (Her an son üç karenin ortalaması kullanılacak.)
+NUM_CONSECUTIVE_DIRECTIONS_TO_EXPECT = 3  # This many consecutive directions are expected to be the same.
 
 # Higher values mean more accurate pose estimation but fewer frames with a pose are detected. (I think.)
 MIN_DETECTION_CONFIDENCE = 0.9
@@ -56,19 +62,25 @@ if width > MAX_WIDTH or height > MAX_HEIGHT:
         height = MAX_HEIGHT
 print("New resolution:", width, "x", height)
 
-angles = []
-
 capture.set(cv.CAP_PROP_POS_FRAMES, VIDEO_START_SEC * framerate)
 
-prev_mean_y = None
-prev_direction = None
+angles = []
+stable_angles = []
+angle_successes = []
+# TODO: Angles are already stable thanks to the deterministic formula! Calculate the stable positions instead. Calculate the angles from the stable positions.
 
-num_pressures = 0
-angle_success = True
+ys = []  # These are the spatially smoothed y coordinates of the direction_reference_ids.
+stable_ys = []  # These are the temporally smoothed values of ys.
+directions = []
+stable_directions = []
+num_compressions = 0
 
 for _ in range(VIDEO_DURATION_SEC * framerate):
 
-    suc, img = capture.read()
+    success, img = capture.read()
+    if not success:
+        print("Video is shorter than expected.")
+        exit(1)
     img = cv.resize(img, (width, height), interpolation=cv.INTER_AREA)
 
     detector.find_pose(img, draw=False)
@@ -76,12 +88,19 @@ for _ in range(VIDEO_DURATION_SEC * framerate):
 
     if len(landmarks) != 0:
         angle = detector.find_angle(img, *arm_ids, draw=True)
+        if angle > 180:
+            angle = 360 - angle
         angles.append(angle)
 
-        if len(angles) >= ANGLE_CHECK_DURATION_SEC * framerate:  # FIXME: We skip some frames, so it more than ANGLE_CHECK_DURATION_SEC seconds.
-            mean_angle = np.mean(angles[-ANGLE_CHECK_DURATION_SEC * framerate:])
-            if abs(180-mean_angle) > ANGLE_TOLERANCE_DEG:
-                angle_success = False
+        stable_angle = np.mean(angles[-NUM_FRAMES_FOR_ANGLE_SMOOTHING:])
+        stable_angles.append(stable_angle)
+
+        if len(stable_angles) >= ANGLE_CHECK_DURATION_SEC * framerate:  # FIXME: We skip some frames, so it more than ANGLE_CHECK_DURATION_SEC seconds.
+            average_angle = np.mean(angles[-ANGLE_CHECK_DURATION_SEC * framerate:])
+            if average_angle >= 180 - ANGLE_TOLERANCE_DEG:
+                angle_successes.append(Success.SUCCESS)
+            else:
+                angle_successes.append(Success.FAILURE)
 
         all_x = []
         all_y = []
@@ -91,28 +110,31 @@ for _ in range(VIDEO_DURATION_SEC * framerate):
                 all_y.append(cy)
                 draw_circle(img, cx, cy, Color.BLUE)
 
-        mean_x = np.mean(all_x)
-        mean_y = np.mean(all_y)
+        x = np.mean(all_x)
+        y = np.mean(all_y)
+        draw_circle(img, x, y, Color.GREEN)
+        ys.append(y)
 
-        if prev_mean_y is not None:
-            if mean_y > prev_mean_y:
-                current_direction = Direction.DOWN
-            else:
-                current_direction = Direction.UP
-            print(current_direction)
-            if prev_direction is not None:
-                if prev_direction == Direction.DOWN and current_direction == Direction.UP:
-                    # TODO: Three consecutive DOWNs should be considered DOWN. Then, three consecutive UPs should be considered UP. Only then we can count a pressure.
-                    num_pressures += 1
-            prev_direction = current_direction
+        if len(ys) > NUM_FRAMES_FOR_COORDINATE_SMOOTHING:
+            stable_ys.append(np.mean(ys[-NUM_FRAMES_FOR_COORDINATE_SMOOTHING:]))
+            if len(stable_ys) >= 2:
+                if stable_ys[-2] < stable_ys[-1]:
+                    curr_direction = Direction.DOWN
+                else:
+                    curr_direction = Direction.UP
+                directions.append(curr_direction)
 
-        draw_circle(img, mean_x, mean_y, Color.GREEN)
-        prev_mean_y = mean_y
+                if len(directions) > NUM_CONSECUTIVE_DIRECTIONS_TO_EXPECT:
+                    if len(set(directions[-NUM_CONSECUTIVE_DIRECTIONS_TO_EXPECT:])) == 1:
+                        stable_directions.append(curr_direction)
 
+                        if len(stable_directions) >= 2:
+                            if stable_directions[-2] == Direction.DOWN and stable_directions[-1] == Direction.UP:
+                                num_compressions += 1
+        
     show_image(img, duration=1)
 
-print("mean of angles:", np.mean(angles))
-print("standard deviation of angles:", np.std(angles))
-print(f"number of pressures: {num_pressures} ({round((num_pressures * 60) / VIDEO_DURATION_SEC)} per minute)")
-# TODO: Calculate the number of pressures per minute not once but for every 10 seconds or so.
-print("angle success:", angle_success)
+print(f"number of compressions: {num_compressions} ({round((num_compressions * 60) / VIDEO_DURATION_SEC, 1)} per minute)")
+# TODO: Calculate the number of compressions per minute not once but for every 10 seconds or so.
+print(f"angle success rate: {round(len([x for x in angle_successes if x == Success.SUCCESS]) / len(angle_successes) * 100, 1)}%")
+# TODO: Calculate the depth of the compression as well. (Instant!)

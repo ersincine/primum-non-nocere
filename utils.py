@@ -11,6 +11,10 @@ OTHER_WRIST_ID = 15
 OTHER_ELBOW_ID = 13
 OTHER_SHOULDER_ID = 11
 
+class Success(Enum):
+    SUCCESS = 1
+    FAIL = 2
+
 
 class Direction(Enum):
     UP = 1
